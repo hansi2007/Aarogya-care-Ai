@@ -40,6 +40,7 @@ export const documents = pgTable("documents", {
   filename: text("filename"),
   mime: text("mime"),
   size: integer("size"),
+  storagePath: text("storage_path"),
   base64: text("base64"),
   textContent: text("text_content"),
   imageSrc: text("image_src"),
@@ -55,6 +56,7 @@ export const runs = pgTable("runs", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("queued"), // queued | running | completed | failed
   mode: text("mode").notNull().default("demo"), // live | demo | text | pdf
   title: text("title").notNull(),
@@ -92,6 +94,7 @@ export const analyses = pgTable(
     runId: uuid("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     rawText: text("raw_text"),
     payload: jsonb("payload").$type<AnalysisPayload>(),
     medCount: integer("med_count").notNull().default(0),

@@ -3,12 +3,16 @@ import { db } from "@/db";
 import { documents, runs } from "@/db/schema";
 import { getSample } from "@/lib/medical/samples";
 import { runPipeline } from "@/lib/agents/orchestrator";
+import {
+  isSupabaseConfigured,
+  uploadMedicalDocumentToStorage,
+} from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MAX_SIZE = 12 * 1024 * 1024;
+const MAX_SIZE = 15 * 1024 * 1024; // 15 MB limit
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,11 +34,12 @@ export async function POST(req: NextRequest) {
       filename?: string;
       mime?: string;
       size?: number;
+      storagePath?: string;
       base64?: string;
       textContent?: string;
       imageSrc?: string;
     } | null = null;
-    let mode = "demo";
+    let mode = "live";
 
     if (contentType.includes("multipart/form-data")) {
       const fd = await req.formData();
@@ -46,16 +51,32 @@ export async function POST(req: NextRequest) {
 
       if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
       if (file.size > MAX_SIZE)
-        return NextResponse.json({ error: "File exceeds 12 MB limit" }, { status: 400 });
+        return NextResponse.json({ error: "File exceeds 15 MB limit" }, { status: 400 });
+
       const buf = Buffer.from(await file.arrayBuffer());
       const mime = file.type || "application/octet-stream";
       const isPdf = mime === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
       const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(file.name);
+
       if (!isPdf && !isImage)
         return NextResponse.json(
-          { error: "Only images (PNG/JPG) and PDFs are supported" },
+          { error: "Only images (PNG/JPG/WEBP) and PDF documents are supported" },
           { status: 400 },
         );
+
+      let storagePath: string | undefined = undefined;
+      if (isSupabaseConfigured()) {
+        const uploadRes = await uploadMedicalDocumentToStorage(
+          userId || "anonymous",
+          file.name,
+          buf,
+          mime,
+        );
+        if (uploadRes.path) {
+          storagePath = uploadRes.path;
+        }
+      }
+
       docValues = {
         userId,
         patientName,
@@ -65,9 +86,10 @@ export async function POST(req: NextRequest) {
         filename: file.name,
         mime,
         size: file.size,
+        storagePath,
         base64: buf.toString("base64"),
       };
-      mode = isPdf ? "pdf" : "demo";
+      mode = "live";
     } else {
       const body = await req.json().catch(() => null);
       if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
@@ -99,7 +121,7 @@ export async function POST(req: NextRequest) {
           patientName,
           patientAge,
           kind: "text",
-          title: String(body.title ?? "Pasted prescription text").slice(0, 120),
+          title: String(body.title ?? "Pasted medical document text").slice(0, 120),
           textContent: text.slice(0, 20000),
         };
         mode = "text";
@@ -111,16 +133,21 @@ export async function POST(req: NextRequest) {
     const [doc] = await db.insert(documents).values(docValues).returning();
     const [run] = await db
       .insert(runs)
-      .values({ documentId: doc.id, title: doc.title, mode })
+      .values({
+        documentId: doc.id,
+        userId: doc.userId,
+        title: doc.title,
+        mode,
+      })
       .returning();
 
     setTimeout(() => {
       runPipeline(run.id).catch(() => {});
-    }, 250);
+    }, 200);
 
     return NextResponse.json({ runId: run.id, documentId: doc.id });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "intake failed";
+    const msg = err instanceof Error ? err.message : "Intake failed";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

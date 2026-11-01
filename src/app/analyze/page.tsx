@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Nav from "@/components/nav";
 import Footer from "@/components/footer";
 import AnalyzeApp from "@/components/analyze/analyze-app";
@@ -27,7 +28,9 @@ export default function AnalyzePage() {
               Every agent move streams live.
             </p>
           </div>
-          <AnalyzeApp />
+          <Suspense fallback={<div className="glass rounded-[22px] p-12 text-center text-mint font-mono2 text-[13px]">Loading AI Agent Console...</div>}>
+            <AnalyzeApp />
+          </Suspense>
         </div>
       </main>
       <Footer />

@@ -130,7 +130,20 @@ export async function POST(req: NextRequest) {
       if (rec?.payload) payload = rec.payload as AnalysisPayload;
     }
 
-    // Try OpenAI or Anthropic if configured
+    // 1. Try Gemini AI Assistant (primary Google Gen AI)
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const { askAarogyaSathiWithGemini } = await import("@/lib/gemini");
+        const geminiAnswer = await askAarogyaSathiWithGemini(question, payload);
+        if (geminiAnswer) {
+          return NextResponse.json({ answer: geminiAnswer, source: "gemini-ai" });
+        }
+      } catch (err) {
+        console.warn("Gemini Sathi assistant failed, falling back:", err);
+      }
+    }
+
+    // 2. Try OpenAI or Anthropic if configured
     if (process.env.OPENAI_API_KEY) {
       try {
         const sysPrompt = `You are "Aarogya Sathi", a warm, empathetic, clinical patient assistant AI. 

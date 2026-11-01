@@ -2,7 +2,7 @@ import type { EnrichedMed, Interaction } from "./types";
 
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
 
-async function fetchJson(url: string, timeoutMs = 9000): Promise<any> {
+async function fetchJson(url: string, timeoutMs = 1200): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {

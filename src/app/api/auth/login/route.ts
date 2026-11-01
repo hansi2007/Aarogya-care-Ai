@@ -51,6 +51,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Incorrect password. Please try again or use Forgot Password." }, { status: 401 });
     }
 
+    try {
+      const { isSupabaseConfigured, getSupabaseServerClient } = await import("@/lib/supabase/server");
+      if (isSupabaseConfigured() && matchedUser.email) {
+        const sb = getSupabaseServerClient();
+        if (sb) {
+          await sb.auth.signInWithPassword({
+            email: matchedUser.email,
+            password: password.trim(),
+          });
+        }
+      }
+    } catch (sbErr) {
+      console.warn("Supabase auth login notice:", sbErr);
+    }
+
     const safeUser = {
       id: matchedUser.id,
       name: matchedUser.name,

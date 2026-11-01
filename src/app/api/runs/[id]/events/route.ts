@@ -57,7 +57,7 @@ export async function GET(
       };
 
       await tick();
-      const iv = setInterval(tick, 450);
+      const iv = setInterval(tick, 100);
       req.signal.addEventListener("abort", () => {
         active = false;
         clearInterval(iv);

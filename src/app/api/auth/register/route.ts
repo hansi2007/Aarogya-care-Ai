@@ -46,9 +46,38 @@ export async function POST(req: NextRequest) {
     // Generate unique Patient ID (e.g. AC-78412)
     const patientId = `AC-${Math.floor(10000 + Math.random() * 90000)}`;
 
+    let supabaseAuthId: string | null = null;
+    try {
+      const { isSupabaseConfigured, getSupabaseServerClient } = await import("@/lib/supabase/server");
+      if (isSupabaseConfigured()) {
+        const sb = getSupabaseServerClient();
+        if (sb) {
+          const { data: sbAuth } = await sb.auth.signUp({
+            email: cleanEmail,
+            password: password.trim(),
+            options: {
+              data: {
+                name: name.trim(),
+                phone: cleanPhone || undefined,
+                age: cleanAge,
+                gender: gender ? String(gender).trim() : undefined,
+                patient_id: patientId,
+              },
+            },
+          });
+          if (sbAuth?.user?.id) {
+            supabaseAuthId = sbAuth.user.id;
+          }
+        }
+      }
+    } catch (sbErr) {
+      console.warn("Supabase auth signup notice:", sbErr);
+    }
+
     const [newUser] = await db
       .insert(users)
       .values({
+        id: supabaseAuthId || undefined,
         name: name.trim(),
         email: cleanEmail,
         phone: cleanPhone || null,

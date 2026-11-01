@@ -418,6 +418,18 @@ function MedStructCard({ m, i }: { m: Medicine; i: number }) {
           </span>
         )}
       </div>
+
+      {m.notes && (
+        <div
+          className={`mt-3 rounded-lg border px-3 py-2 text-[11.5px] leading-relaxed ${
+            m.notes.includes("Warning") || m.notes.includes("uncertain") || m.notes.includes("⚠️")
+              ? "border-amber/40 bg-amber/10 text-amber font-medium"
+              : "border-line bg-panel2/80 text-dim"
+          }`}
+        >
+          {m.notes}
+        </div>
+      )}
     </motion.div>
   );
 }

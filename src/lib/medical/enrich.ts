@@ -7,7 +7,7 @@ import { findReference } from "./reference";
 const RXNAV = "https://rxnav.nlm.nih.gov/REST";
 const FDA = "https://api.fda.gov/drug/label.json";
 
-async function fetchJson(url: string, timeoutMs = 8000): Promise<any> {
+async function fetchJson(url: string, timeoutMs = 1200): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -55,6 +55,7 @@ async function rxnavLookup(name: string): Promise<RxNavHit> {
   try {
     const approx = await fetchJson(
       `${RXNAV}/approximateTerm.json?term=${encodeURIComponent(name)}&maxEntries=1`,
+      1200,
     );
     const cand = approx?.approximateGroup?.candidate?.[0];
     if (!cand?.rxcui) return hit;
@@ -62,6 +63,7 @@ async function rxnavLookup(name: string): Promise<RxNavHit> {
     try {
       const related = await fetchJson(
         `${RXNAV}/rxcui/${hit.rxcui}/related.json?tty=IN+MIN+PIN+BN`,
+        1000,
       );
       const groups = related?.relatedGroup?.conceptGroup ?? [];
       for (const g of groups) {
@@ -79,14 +81,14 @@ async function rxnavLookup(name: string): Promise<RxNavHit> {
     if (!hit.ingredientRxcui) hit.ingredientRxcui = hit.rxcui;
     if (!hit.genericName) {
       try {
-        const props = await fetchJson(`${RXNAV}/rxcui/${hit.rxcui}/properties.json`);
+        const props = await fetchJson(`${RXNAV}/rxcui/${hit.rxcui}/properties.json`, 1000);
         hit.genericName = props?.properties?.name;
       } catch {
         /* ignore */
       }
     }
   } catch {
-    /* offline or failed — reference DB will take over */
+    /* offline or timed out — reference DB takes over instantly */
   }
   return hit;
 }
@@ -101,17 +103,13 @@ interface FdaHit {
 
 async function fdaLookup(name: string): Promise<FdaHit> {
   const out: FdaHit = { sideEffects: [], warnings: [], brandNames: [] };
-  const queries = [
-    `openfda.generic_name:"${name}"`,
-    `openfda.generic_name:${name}`,
-    `openfda.brand_name:"${name}"`,
-    `openfda.substance_name:"${name}"`,
-  ];
-  for (const q of queries) {
-    try {
-      const data = await fetchJson(`${FDA}?search=${encodeURIComponent(q)}&limit=1`);
-      const r = data?.results?.[0];
-      if (!r) continue;
+  try {
+    const data = await fetchJson(
+      `${FDA}?search=openfda.generic_name:"${encodeURIComponent(name)}"&limit=1`,
+      1200,
+    );
+    const r = data?.results?.[0];
+    if (r) {
       out.uses = firstField(r, ["indications_and_usage", "purpose", "clinical_pharmacology"]);
       const se = firstField(r, ["adverse_reactions"]);
       if (se) out.sideEffects = listSentences(se, 4);
@@ -119,10 +117,9 @@ async function fdaLookup(name: string): Promise<FdaHit> {
       if (w) out.warnings = listSentences(w, 3);
       if (r.openfda?.brand_name) out.brandNames = r.openfda.brand_name.slice(0, 3);
       if (r.openfda?.generic_name?.[0]) out.genericName = r.openfda.generic_name[0];
-      if (out.uses || out.warnings.length) break;
-    } catch {
-      continue;
     }
+  } catch {
+    /* fallback to reference database */
   }
   return out;
 }

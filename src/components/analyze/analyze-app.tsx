@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, FileType2, RotateCcw, ScanLine } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Intake, { type IntakePayload } from "./intake";
 import AgentConsole, { applyEvent, emptyConsole, type ConsoleState } from "./agent-console";
 import {
@@ -56,6 +57,9 @@ export default function AnalyzeApp() {
   const startedAt = useRef<number>(Date.now());
   const esRef = useRef<EventSource | null>(null);
 
+  const searchParams = useSearchParams();
+  const runIdParam = searchParams.get("runId");
+
   const handleEvent = useCallback((raw: string) => {
     let msg: { type: string; event?: RunEvent; status?: string };
     try {
@@ -101,6 +105,66 @@ export default function AnalyzeApp() {
       setCons((c) => ({ ...c, running: false, failed: msg.status === "failed" }));
     }
   }, []);
+
+  // Automatically attach to runId if provided in URL query parameters
+  useEffect(() => {
+    if (!runIdParam) return;
+    let active = true;
+
+    async function attachToRun() {
+      try {
+        setPhase("submitting");
+        const res = await fetch(`/api/runs/${runIdParam}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+
+        if (data.analysis?.payload) {
+          const payload = data.analysis.payload;
+          setLive({
+            rawText: payload.rawText,
+            structured: payload.structured,
+            enriched: payload.enriched || [],
+            plain: payload.plain,
+            interactions: payload.interactions || [],
+            routine: payload.routine || [],
+            doctorQuestions: payload.doctorQuestions || [],
+            analysisId: data.analysis.id,
+            mode: data.run?.mode,
+            summaryLine: data.run?.summaryLine,
+          });
+          setPhase("done");
+          setCons((c) => ({ ...c, running: false, failed: false }));
+          if (data.document?.base64) {
+            setPreviewSrc(`data:${data.document.mime || "image/png"};base64,${data.document.base64}`);
+            setIsPdf(data.document.kind === "pdf" || data.document.mime === "application/pdf");
+          } else if (data.document?.imageSrc) {
+            setPreviewSrc(data.document.imageSrc);
+          }
+        } else {
+          // Live streaming if run is still in-progress
+          setPhase("streaming");
+          const es = new EventSource(`/api/runs/${runIdParam}/events`);
+          esRef.current = es;
+          es.onmessage = (e) => handleEvent(e.data);
+          es.onerror = () => {
+            es.close();
+            setPhase((p) => (p === "done" ? p : "error"));
+          };
+        }
+      } catch (err: any) {
+        if (active) {
+          setError(err.message || "Failed to load run session");
+          setPhase("error");
+        }
+      }
+    }
+
+    attachToRun();
+    return () => {
+      active = false;
+    };
+  }, [runIdParam, handleEvent]);
 
   const start = useCallback(
     async (payload: IntakePayload) => {

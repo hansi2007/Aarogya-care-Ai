@@ -27,23 +27,25 @@ function ensureDirectoryExistence(filePath: string) {
 function loadInitialData(): StoreData {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (!parsed.users) parsed.users = [];
-      if (parsed.users.length === 0) {
-        parsed.users.push({
-          id: "usr-demo-1",
-          name: "Ramesh Kumar",
-          email: "ramesh@aarogyacare.ai",
-          phone: "9876543210",
-          age: 54,
-          gender: "Male",
-          patientId: "AC-54892",
-          password: "password123",
-          createdAt: new Date().toISOString(),
-        });
+      const raw = fs.readFileSync(DATA_FILE, "utf-8").trim();
+      if (raw.length > 0) {
+        const parsed = JSON.parse(raw);
+        if (!parsed.users) parsed.users = [];
+        if (parsed.users.length === 0) {
+          parsed.users.push({
+            id: "usr-demo-1",
+            name: "Ramesh Kumar",
+            email: "ramesh@aarogyacare.ai",
+            phone: "9876543210",
+            age: 54,
+            gender: "Male",
+            patientId: "AC-54892",
+            password: "password123",
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return parsed;
       }
-      return parsed;
     }
   } catch (err) {
     console.warn("Failed to load local db-store.json, creating new store", err);
@@ -91,7 +93,9 @@ if (!globalStore.users || globalStore.users.length === 0) {
 function persistStore() {
   try {
     ensureDirectoryExistence(DATA_FILE);
-    fs.writeFileSync(DATA_FILE, JSON.stringify(globalStore, null, 2), "utf-8");
+    const tmp = `${DATA_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(globalStore, null, 2), "utf-8");
+    fs.renameSync(tmp, DATA_FILE);
   } catch (err) {
     // Ignore write issues in read-only / serverless environments
   }
@@ -162,15 +166,21 @@ export class MemoryDb {
       orderBy(...orderDefs: any[]) {
         if (orderDefs.length > 0) {
           const ord = orderDefs[0];
-          // Check if desc
-          if (ord?.queryChunks) {
-            const chunks = ord.queryChunks;
-            const str = JSON.stringify(chunks);
-            orderDesc = str.includes("desc");
-            for (const ch of chunks) {
-              if (ch && ch.name) orderCol = ch.name;
+          try {
+            if (ord?.queryChunks) {
+              for (const ch of ord.queryChunks) {
+                if (typeof ch === "string" && ch.toLowerCase().includes("desc")) {
+                  orderDesc = true;
+                }
+                if (ch && typeof ch === "object" && ch.name) {
+                  orderCol = ch.name;
+                }
+              }
             }
-          }
+            if (ord?.column?.name) {
+              orderCol = ord.column.name;
+            }
+          } catch {}
         }
         return query;
       },
@@ -335,6 +345,34 @@ export class MemoryDb {
                 return Promise.resolve(updated).then(resolve);
               },
             };
+          },
+        };
+      },
+    };
+  }
+
+  delete(table: any) {
+    const tableName = getTableName(table) as TableName;
+    return {
+      where(cond: any) {
+        const tableData = globalStore[tableName] || [];
+        const kept: any[] = [];
+        const deleted: any[] = [];
+        for (let i = 0; i < tableData.length; i++) {
+          if (matchesConditions(cond, tableData[i])) {
+            deleted.push(tableData[i]);
+          } else {
+            kept.push(tableData[i]);
+          }
+        }
+        globalStore[tableName] = kept;
+        persistStore();
+        return {
+          returning() {
+            return Promise.resolve(deleted);
+          },
+          then(resolve: (value: any) => void) {
+            return Promise.resolve(deleted).then(resolve);
           },
         };
       },
